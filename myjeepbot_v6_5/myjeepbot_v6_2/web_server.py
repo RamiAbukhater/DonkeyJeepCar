@@ -45,6 +45,7 @@ class JeepBotWebServer:
         self.frame_queue = frame_queue
         self.rear_queue  = rear_queue if rear_queue is not None else camera.get_default_rear_queue()
         self.detector    = detector
+        self.navigator   = None   # set by jeepbot_drive when GPS nav is enabled
         self.app         = Flask(__name__, static_folder="static", template_folder="templates")
         self._lock       = threading.Lock()
         self.mode        = config.DEFAULT_DRIVE_MODE
@@ -83,6 +84,14 @@ class JeepBotWebServer:
                     "detections": [],
                 })
             return jsonify(self.detector.snapshot())
+
+        @self.app.route("/nav_status")
+        def nav_status():
+            if self.navigator is None:
+                return jsonify({"enabled": False})
+            status = self.navigator.status()
+            status["enabled"] = True
+            return jsonify(status)
 
         @self.app.route("/controller")
         def controller_test():

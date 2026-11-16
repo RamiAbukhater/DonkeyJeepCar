@@ -7,6 +7,8 @@ Drive modes (set via web UI or web_server.get_mode()):
   record        — joystick controls + tub data is recorded to disk
   auto_steering — AI steers, joystick controls throttle
   full_drive    — AI steers AND drives (full autonomous)
+  gps_steering  — GPS PID steers along the waypoint path, joystick controls throttle
+  gps_drive     — GPS PID steers AND drives along the waypoint path
 """
 from __future__ import annotations
 
@@ -31,6 +33,8 @@ from pygame_f710 import F710DirectInput
 from pygame_radiomaster import RadioMasterInput
 from web_server import JeepBotWebServer, JeepBotRearWebServer
 from camera import start_camera_thread, start_rear_camera_thread, resolve_devices, _mxid
+
+GPS_MODES = ("gps_steering", "gps_drive")
 # -----------------------------------------------------------------------
 # Math helpers
 # -----------------------------------------------------------------------
@@ -413,6 +417,22 @@ def drive(config) -> int:
     if config.ENABLE_WEB_SERVER:
         web_server, frame_queue, ai_queue, rear_queue = _start_camera_web_stack(config)
     # ------------------------------------------------------------------
+    # GPS waypoint navigator (optional; see GPS_NAV.md)
+    # ------------------------------------------------------------------
+    navigator = None
+    if getattr(config, "ENABLE_GPS_NAV", False):
+        try:
+            from gps_nav import GpsNavigator
+            navigator = GpsNavigator.from_config(config)
+            if web_server is not None:
+                web_server.navigator = navigator
+        except Exception as exc:
+            print(f"[gps-nav] WARNING: Could not start navigator: {exc}")
+    gps_cruise_duty = min(
+        abs(getattr(config, "GPS_NAV_CRUISE_DUTY", 0.10)), abs(args.max_duty)
+    )
+
+    # ------------------------------------------------------------------
     # Lazy-load AI pilot (only if model file exists)
     # ------------------------------------------------------------------
     pilot = None
@@ -480,6 +500,16 @@ def drive(config) -> int:
 
             # ---- Deadman safety ----
             deadman = args.no_deadman or state.pressed(args.deadman_button)
+            gps_mode = web_mode in GPS_MODES
+            if gps_mode:
+                # GPS modes always need the button held, even with --no-deadman.
+                deadman = state.pressed(args.deadman_button)
+
+            # Stepped every loop so GPS is logged in all modes; the controller
+            # only runs (and only keeps state) while a GPS mode is engaged.
+            nav_cmd = None
+            if navigator is not None:
+                nav_cmd = navigator.update(active=gps_mode and deadman)
 
             # ====================================================
             # JOYSTICK INPUT  (always computed; used in manual/record
@@ -530,7 +560,26 @@ def drive(config) -> int:
             # MODE DISPATCH
             # ====================================================
 
-            if web_mode in ("manual", "record") or pilot is None:
+            if gps_mode:
+                # ---- GPS waypoint following ----
+                if nav_cmd is not None and nav_cmd.ok:
+                    steering_target_deg = endpoint_target_deg(
+                        stick=nav_cmd.steering,
+                        center_deg=args.steering_center_deg,
+                        left_deg=args.steering_left_deg,
+                        right_deg=args.steering_right_deg,
+                        wrap_deg=args.steering_wrap_deg,
+                    )
+                    if web_mode == "gps_drive":
+                        drive_target_duty = nav_cmd.throttle * gps_cruise_duty
+                    else:
+                        drive_target_duty = joystick_duty
+                else:
+                    # No fix / off path / finished / navigator missing: stop.
+                    steering_target_deg = args.steering_center_deg
+                    drive_target_duty   = 0.0
+
+            elif web_mode in ("manual", "record") or pilot is None:
                 # ---- Manual / Record ----
                 steering_target_deg = joystick_steering_deg
                 drive_target_duty   = joystick_duty
@@ -644,8 +693,12 @@ def drive(config) -> int:
                         recorder and web_mode == "record" and deadman
                     ) else ""
                 )
+                nav_label = ""
+                if gps_mode:
+                    nav_state = nav_cmd.state if nav_cmd is not None else "GPS NAV OFF"
+                    nav_label = f" nav={nav_state}"
                 print(
-                    f"\r{deadman_label} [{web_mode}]{rec_label} "
+                    f"\r{deadman_label} [{web_mode}]{rec_label}{nav_label} "
                     f"steer={steering_cmd_deg:+.2f}° "
                     f"drive={drive_cmd_duty:+.3f}  ",
                     end="",
@@ -662,6 +715,9 @@ def drive(config) -> int:
         # Close tub recorder (flushes background writer)
         if recorder is not None:
             recorder.close()
+
+        if navigator is not None:
+            navigator.close()
 
         # Return steering to centre
         if steering_serial is not None:

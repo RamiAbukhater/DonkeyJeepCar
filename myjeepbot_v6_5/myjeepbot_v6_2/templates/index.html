@@ -33,6 +33,9 @@
     .mode-value.record        { color: #f55; }
     .mode-value.auto_steering { color: #4af; }
     .mode-value.full_drive    { color: #4f4; }
+    .mode-value.gps_steering  { color: #fa4; }
+    .mode-value.gps_drive     { color: #f84; }
+    #nav-status { font-family: monospace; font-size: 0.9em; color: #ccc; min-height: 1.2em; margin: 6px 0; }
 
     /* Buttons */
     .btn-row {
@@ -166,7 +169,11 @@
     <button class="btn-record"        onclick="setMode('record')">⏺ Record</button>
     <button class="btn-auto_steering" onclick="setMode('auto_steering')">↔ Auto Steer</button>
     <button class="btn-full_drive"    onclick="setMode('full_drive')">🤖 Full Drive</button>
+    <button class="btn-gps_steering"  onclick="setMode('gps_steering')">🧭 GPS Steer</button>
+    <button class="btn-gps_drive"     onclick="setMode('gps_drive')">🛰 GPS Drive</button>
   </div>
+
+  <div id="nav-status"></div>
 
   <div id="rec-status"></div>
 
@@ -239,6 +246,22 @@
       } else {
         el.textContent = "";
       }
+    }, 500);
+
+    // GPS navigation telemetry
+    setInterval(() => {
+      fetch("/nav_status")
+        .then(r => r.json())
+        .then(s => {
+          const el = document.getElementById("nav-status");
+          if (!s.enabled) { el.textContent = ""; return; }
+          const f = (v, d) => (v === null || v === undefined) ? "--" : Number(v).toFixed(d);
+          el.textContent =
+            `GPS: ${s.state || "--"} | fix q=${s.quality ?? "--"} sats=${s.num_sats ?? "--"} hdop=${f(s.hdop, 1)}` +
+            ` | cte=${f(s.cte, 2)} m | offset=${f(s.offset, 2)} m | heading=${f(s.heading_deg, 0)}°` +
+            ` | speed=${f(s.speed, 2)} m/s | remaining=${f(s.dist_remaining, 1)} m`;
+        })
+        .catch(() => {});
     }, 500);
 
     // Init highlight

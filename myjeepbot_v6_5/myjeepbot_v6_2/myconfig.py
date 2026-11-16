@@ -112,6 +112,43 @@ DEFAULT_TUB_PATH             = "tub"
 
 
 # ===============================================
+# GPS / GNSS waypoint navigation (PID path follower) — see GPS_NAV.md
+# Adds web modes: gps_steering (GPS steers, you throttle) and gps_drive.
+# ===============================================
+ENABLE_GPS_NAV               = False
+# Use a /dev/serial/by-id/... path so the port never swaps with the VESCs.
+GPS_PORT                     = "/dev/ttyUSB0"
+GPS_BAUDRATE                 = 460800
+# Waypoint CSV (lat,lon). Build one with: python3 gps_tool.py make-path <log>
+GPS_NAV_PATH_FILE            = "gps_nav/paths/path.csv"
+# Every GPS fix + controller term is logged here (all modes). None disables.
+GPS_NAV_LOG_DIR              = "gps_logs"
+
+# Drive duty used in gps_drive at full "throttle" (capped by DEFAULT_MAX_DUTY).
+GPS_NAV_CRUISE_DUTY          = 0.10
+
+# Lateral PID: steering (-1..+1) per metre of cross-track error.
+GPS_NAV_KP_LAT               = 0.35
+GPS_NAV_KI_LAT               = 0.0
+GPS_NAV_KD_LAT               = 0.0
+GPS_NAV_LAT_LIMIT            = 0.5    # max steering from the lateral PID alone
+# Heading PD: steering per radian of heading error.
+GPS_NAV_KP_HEAD              = 1.2
+GPS_NAV_KD_HEAD              = 0.0
+GPS_NAV_LOOKAHEAD_M          = 1.5
+
+# Safety gates: outside these the navigator commands a stop.
+GPS_NAV_MIN_QUALITY          = 1      # 1 any fix, 2 DGPS/SBAS, 5 RTK float, 4 RTK fixed
+GPS_NAV_MAX_HDOP             = 2.5
+GPS_NAV_FIX_TIMEOUT_S        = 1.0
+GPS_NAV_MAX_CTE_M            = 4.0
+GPS_NAV_GOAL_TOLERANCE_M     = 1.0
+
+# Largest sideways shift the avoidance team may request (set_lateral_offset).
+GPS_NAV_MAX_OFFSET_M         = 2.0
+
+
+# ===============================================
 # Start JeepBot from terminal
 #   python3 myconfig.py drive
 # ===============================================
